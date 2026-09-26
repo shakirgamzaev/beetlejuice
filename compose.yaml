@@ -1,0 +1,27 @@
+name: beetlejuice
+
+services:
+  mediamtx:
+    image: bluenviron/mediamtx:latest
+    restart: unless-stopped
+    environment:
+      MTX_WEBRTCADDITIONALHOSTS: "${MEDIAMTX_PUBLIC_HOST:?Set MEDIAMTX_PUBLIC_HOST in .env}"
+    ports:
+      - "8554:8554"       # Pi publishes RTSP here.
+      - "8889:8889"       # Browsers open the WebRTC player here.
+      - "8189:8189/udp"   # WebRTC video packets.
+
+  backend:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    environment:
+      DATABASE_PATH: /data/parking.db
+      FRONTEND_ORIGINS: "${FRONTEND_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}"
+    ports:
+      - "8000:8000"
+    volumes:
+      - backend-data:/data
+
+volumes:
+  backend-data:

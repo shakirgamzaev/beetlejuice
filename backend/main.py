@@ -10,7 +10,9 @@ from pydantic import BaseModel, Field
 
 
 BASE_DIR = Path(__file__).resolve().parent
-DATABASE_PATH = BASE_DIR / "parking.db"
+DATABASE_PATH = Path(
+    os.getenv("DATABASE_PATH", str(BASE_DIR / "parking.db"))
+)
 FRONTEND_ORIGINS = [
     origin.strip()
     for origin in os.getenv(
@@ -56,6 +58,7 @@ def connect_database() -> sqlite3.Connection:
 
 
 def initialize_database() -> None:
+    DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
     with connect_database() as connection:
         connection.executescript(
             """
