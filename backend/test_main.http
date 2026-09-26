@@ -1,0 +1,25 @@
+# Run the app with: uv run uvicorn main:app --reload
+
+GET http://127.0.0.1:8000/
+Accept: application/json
+
+###
+
+GET http://127.0.0.1:8000/api/spots
+Accept: application/json
+
+### Simulate one result from the OpenCV process
+
+POST http://127.0.0.1:8000/api/cameras/demo-camera/detections
+Content-Type: application/json
+
+{
+  "detections": [
+    {"spot_id": "A-1", "available": true, "confidence": 0.96},
+    {"spot_id": "A-2", "available": false, "confidence": 0.91}
+  ]
+}
+
+### Watch live events (keep this request open, then run the POST above)
+
+WEBSOCKET ws://127.0.0.1:8000/ws/parking
