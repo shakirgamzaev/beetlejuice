@@ -7,8 +7,8 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
     proxy: {
-      '/api': { target: 'http://127.0.0.1:8000', changeOrigin: true },
-      '/ws': { target: 'ws://127.0.0.1:8000', ws: true },
+      '/api': { target: 'http://3.227.20.110:8000', changeOrigin: true },
+      '/ws': { target: 'ws://3.227.20.110:8000', ws: true },
     },
   },
 });

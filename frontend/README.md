@@ -28,7 +28,9 @@ npm run build
 
 ## Camera integration
 
-The UI consumes the existing `GET /api/spots` and `/ws/parking` contract without backend changes. Send real camera observations to the existing detection endpoint using stable `spot_id` values. `demo-camera` is a reserved simulator label; use another ID for real observations. Continue sending observations for unchanged spaces, not just transitions.
+The UI consumes the existing `GET /api/spots` and `/ws/parking` contract from `http://3.227.20.110:8000` by default. Override it at build time with `VITE_API_BASE_URL`; WebSocket uses the corresponding `ws://` or `wss://` URL and `/ws/parking` path. Send real camera observations to the existing detection endpoint using stable `spot_id` values. `demo-camera` is a reserved simulator label; use another ID for real observations. Continue sending observations for unchanged spaces, not just transitions.
+
+For the staged Lot 9 demo, the frontend starts in a vacant baseline. Expanding **Show camera** loads the fixed image-based occupancy list in `src/lib/demoSnapshot.js`; this list is presentation data and is not a live detector result. Use **Connect live backend** to leave the staged demo and show backend observations.
 
 Because the backend only broadcasts occupancy transitions, the UI also fetches snapshots every five seconds to refresh observation timestamps. Data older than 20 seconds, confidence below 0.6, future timestamps over 10 seconds ahead, and disconnected states display as unknown. Camera clocks must be synchronized. These frontend heuristics do not replace backend stale-state handling or model calibration.
 
