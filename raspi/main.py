@@ -388,6 +388,8 @@ def stream(args: argparse.Namespace) -> None:
         "h264",
         "--libav-format",
         "h264",
+        # Reduce frame buffering in the Pi's libav/libx264 software encoder.
+        "--low-latency",
         "--profile",
         "baseline",
         "--bitrate",
@@ -402,7 +404,8 @@ def stream(args: argparse.Namespace) -> None:
         ffmpeg_binary,
         "-hide_banner",
         "-loglevel",
-        "warning",
+        "info",
+        "-stats",
         "-f",
         "h264",
         "-r",
