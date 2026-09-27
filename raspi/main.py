@@ -209,10 +209,10 @@ class PredefinedBoundaryBox:
 def load_predefined_boxes(spots_file: str | Path) -> list[PredefinedBoundaryBox]:
     path = Path(spots_file)
     default_spots = [
-        {"spot_id": "A-1", "bbox": [100, 320, 160, 220]},
-        {"spot_id": "A-2", "bbox": [300, 320, 160, 220]},
-        {"spot_id": "A-3", "bbox": [500, 320, 160, 220]},
-        {"spot_id": "A-4", "bbox": [700, 320, 160, 220]},
+        {"spot_id": "A1", "bbox": [100, 320, 160, 220]},
+        {"spot_id": "A2", "bbox": [300, 320, 160, 220]},
+        {"spot_id": "A3", "bbox": [500, 320, 160, 220]},
+        {"spot_id": "A4", "bbox": [700, 320, 160, 220]},
     ]
     if not path.is_file():
         return [PredefinedBoundaryBox(spot_id=item["spot_id"], bbox=item["bbox"]) for item in default_spots]
