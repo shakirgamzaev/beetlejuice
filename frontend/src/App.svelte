@@ -21,7 +21,7 @@
   let modal = '';
   let error = '';
   let notice = '';
-  let config = { name: LOT_NAME, latitude: '', longitude: '', cameraUrl: '' };
+  let config = { name: LOT_NAME, latitude: '', longitude: '', cameraUrl: 'http://3.227.20.110:8889/parking?autoplay=true&muted=true&playsInline=true' };
   let draft = { ...config };
   let stopTransport = () => {};
   const apiBase = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
@@ -180,6 +180,13 @@
         <p class="lot-review-note">Parking rules and labels are provisional until confirmed onsite.</p>
         {#if unmapped.length && mode !== 'demo'}<div class="lot-integration-note">The current camera feed isn’t mapped to Lot 9 yet. Unobserved spaces stay “Not monitored.” <button onclick={startDemo}>Preview a few simulated spaces →</button></div>{/if}
         {#if mapView === 'map'}
+          <div class="live-camera">
+            {#if config.cameraUrl && /^https?:\/\//.test(config.cameraUrl)}
+              <iframe src={config.cameraUrl} title="Live parking camera feed" class="camera-player" sandbox="allow-scripts allow-same-origin" allow="autoplay; fullscreen; picture-in-picture"></iframe>
+            {:else}
+              <div class="camera-placeholder"><Icon name="camera" size={32}/><h3>No camera feed connected.</h3><p>Add a camera URL in lot settings to see the live view here.</p><button class="secondary" onclick={() => openModal('settings')}>Connect a camera <Icon name="arrow" size={16}/></button></div>
+            {/if}
+          </div>
           <LotMap spots={enriched} {selectedId} visibleIds={filtered.map(s => s.spot_id)} onselect={chooseSpot}/>
 
         {:else}
