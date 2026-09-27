@@ -50,8 +50,8 @@ def parse_args() -> argparse.Namespace:
         required=default_url is None,
         help=(
             "MediaMTX publishing URL, for example "
-            "rtsp://203.0.113.10:8554/parking. Can also be set with "
-            "MEDIAMTX_RTSP_URL."
+            "rtmp://203.0.113.10:1935/parking (or rtsp://...:8554/parking). "
+            "Can also be set with MEDIAMTX_RTSP_URL."
         ),
     )
     parser.add_argument("--width", type=int, default=1280)
@@ -105,11 +105,12 @@ def parse_args() -> argparse.Namespace:
     args = parser.parse_args()
 
     parsed_url = urlparse(args.url)
-    if parsed_url.scheme != "rtsp" or not parsed_url.netloc:
-        parser.error("--url must be a complete rtsp:// URL")
+    if parsed_url.scheme not in ("rtsp", "rtmp") or not parsed_url.netloc:
+        parser.error("--url must be a complete rtsp:// or rtmp:// URL")
     if not parsed_url.path.strip("/"):
-        example_port = f":{parsed_url.port}" if parsed_url.port else ":8554"
-        example_url = f"rtsp://{parsed_url.hostname}{example_port}/parking"
+        default_port = "8554" if parsed_url.scheme == "rtsp" else "1935"
+        example_port = f":{parsed_url.port}" if parsed_url.port else f":{default_port}"
+        example_url = f"{parsed_url.scheme}://{parsed_url.hostname}{example_port}/parking"
         parser.error(
             f"--url must include a stream path, for example: {example_url}"
         )
@@ -400,6 +401,11 @@ def stream(args: argparse.Namespace) -> None:
         "--output",
         "-",
     ]
+    if urlparse(args.url).scheme == "rtmp":
+        publish_args = ["-c:v", "copy", "-f", "flv", args.url]
+    else:
+        publish_args = ["-c:v", "copy", "-f", "rtsp", "-rtsp_transport", "tcp", args.url]
+
     ffmpeg_command = [
         ffmpeg_binary,
         "-hide_banner",
@@ -414,13 +420,7 @@ def stream(args: argparse.Namespace) -> None:
         "pipe:0",
 
         # Send to MediaMTX hosted on AWS
-        "-c:v",
-        "copy",
-        "-f",
-        "rtsp",
-        "-rtsp_transport",
-        "tcp",
-        args.url,
+        *publish_args,
 
         # Local stream for OpenCV on RasPi (port 8555)
         "-c:v", "copy",
