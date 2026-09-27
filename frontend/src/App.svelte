@@ -3,7 +3,7 @@
   import Icon from './lib/Icon.svelte';
   import LotMap from './lib/LotMap.svelte';
   import { LOT_NAME, lotSpots, mappedObservations, restrictionLabels } from './lib/lot9.js';
-  import { DEMO_OCCUPIED_IDS, DEMO_TARGET_SPOT } from './lib/demoSnapshot.js';
+  import { DEMO_OCCUPIED_IDS } from './lib/demoSnapshot.js';
   import { statusOf, ageLabel, mergeSpots, validCoordinates, mapsUrl } from './lib/parking.js';
 
   let spots = [];
@@ -30,7 +30,15 @@
   const apiBase = (import.meta.env.VITE_API_BASE_URL || 'http://3.227.20.110:8000').replace(/\/$/, '');
   const wsBase = import.meta.env.VITE_WS_URL || (apiBase ? apiBase.replace(/^http/, 'ws') + '/ws/parking' : `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws/parking`);
 
-  $: enriched = mappedObservations(spots, now, online, statusOf);
+  // Staged demo states are intentionally static until refresh; real camera/API observations still expire.
+  function displayStatus(spot, timestamp, connected) {
+    if (mode === 'demo' && spot?.camera_id === 'demo-camera' && Number.isFinite(spot.confidence) && spot.confidence >= 0.6 && typeof spot.available === 'boolean') {
+      return spot.available ? 'available' : 'occupied';
+    }
+    return statusOf(spot, timestamp, connected);
+  }
+
+  $: enriched = mappedObservations(spots, now, online, displayStatus);
   $: unmonitored = enriched.filter(spot => spot.status === 'unmonitored');
   $: unmapped = spots.filter(spot => !lotSpots.some(layout => layout.spot_id === spot.spot_id));
   $: available = enriched.filter(spot => spot.status === 'available');
@@ -123,16 +131,7 @@
     const updatedAt = new Date().toISOString();
     const snapshot = lotSpots.map(layout => ({ spot_id: layout.spot_id, available: !DEMO_OCCUPIED_IDS.has(layout.spot_id), confidence: 1, camera_id: 'demo-camera', updated_at: updatedAt }));
     recordUpdates(snapshot);
-    selectedId = DEMO_TARGET_SPOT;
     demoSnapshotLoaded = true;
-  }
-
-  function toggleDemoCar() {
-    const current = spots.find(spot => spot.spot_id === DEMO_TARGET_SPOT);
-    if (!current || !demoSnapshotLoaded) return;
-    const updated = { ...current, available: !current.available, updated_at: new Date().toISOString() };
-    recordUpdates([updated]);
-    selectedId = DEMO_TARGET_SPOT;
   }
 
   function toggleCamera() {
@@ -201,8 +200,7 @@
       {:else}
         <div class="camera-placeholder-inline"><Icon name="camera" size={34}/><div><strong>Camera feed not connected yet</strong><p>Paste a browser-compatible WebRTC or HLS player URL in Lot settings. RTSP URLs cannot play directly in a browser.</p></div><button class="secondary" onclick={() => openModal('settings')}>Add camera URL <Icon name="arrow" size={15}/></button></div>
       {/if}
-      {#if mode === 'demo' && demoSnapshotLoaded}<div class="camera-demo-control"><div><strong>Demo car · Space {DEMO_TARGET_SPOT}</strong><p>Move your car PNG in or out, then click to update the matching map space.</p></div><button class="secondary" onclick={toggleDemoCar}>{spots.find(spot => spot.spot_id === DEMO_TARGET_SPOT)?.available ? 'Simulate car entering' : 'Simulate car leaving'} <Icon name="arrow" size={15}/></button></div>{/if}
-      <div class="camera-section-foot"><span><i class="status-dot" class:offline={!online}></i>{mode === 'demo' ? (demoSnapshotLoaded ? 'Fixed demo snapshot loaded' : 'All spaces start vacant') : online ? 'Occupancy updates connected' : 'Waiting for occupancy service'}</span><span>Snapshot occupancy is staged demo data, not live detection.</span></div>
+      <div class="camera-section-foot"><span><i class="status-dot" class:offline={!online}></i>{mode === 'demo' ? (demoSnapshotLoaded ? 'Occupancy updated' : 'All spaces start vacant') : online ? 'Occupancy updates connected' : 'Waiting for occupancy service'}</span></div>
     </section>
   {/if}
 

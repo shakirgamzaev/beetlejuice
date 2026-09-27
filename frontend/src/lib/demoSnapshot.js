@@ -1,7 +1,5 @@
 // Fixed occupancy seed for the Lot 9 presentation image. This is demo data,
 // not a detector result or a claim about current availability in the real lot.
-export const DEMO_TARGET_SPOT = 'F30';
-
 export const DEMO_OCCUPIED_IDS = new Set([
   'A2','A5','A6','A9','A10','A13','A16','A18',
   'B1','B3','B14','B17','B20','B21','B22','B23','B24','B25','B26',
