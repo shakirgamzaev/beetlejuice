@@ -3,6 +3,7 @@
   import Icon from './lib/Icon.svelte';
   import LotMap from './lib/LotMap.svelte';
   import { LOT_NAME, lotSpots, mappedObservations, restrictionLabels } from './lib/lot9.js';
+  import { DEMO_OCCUPIED_IDS, DEMO_TARGET_SPOT } from './lib/demoSnapshot.js';
   import { statusOf, ageLabel, mergeSpots, validCoordinates, mapsUrl } from './lib/parking.js';
 
   let spots = [];
@@ -10,7 +11,7 @@
   let now = Date.now();
   let online = false;
   let connection = 'connecting';
-  let mode = 'backend';
+  let mode = 'demo';
   let selectedId = '';
   let activeView = 'parking';
   let mapView = 'map';
@@ -20,12 +21,13 @@
   let dialog;
   let modal = '';
   let cameraExpanded = false;
+  let demoSnapshotLoaded = false;
   let error = '';
   let notice = '';
   let config = { name: LOT_NAME, latitude: '', longitude: '', cameraUrl: '' };
   let draft = { ...config };
   let stopTransport = () => {};
-  const apiBase = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
+  const apiBase = (import.meta.env.VITE_API_BASE_URL || 'http://3.227.20.110:8000').replace(/\/$/, '');
   const wsBase = import.meta.env.VITE_WS_URL || (apiBase ? apiBase.replace(/^http/, 'ws') + '/ws/parking' : `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws/parking`);
 
   $: enriched = mappedObservations(spots, now, online, statusOf);
@@ -107,6 +109,37 @@
     dialog?.close();
   }
 
+  function startVacantDemo() {
+    stopTransport();
+    mode = 'demo'; connection = 'demo'; online = true; events = []; selectedId = '';
+    demoSnapshotLoaded = false;
+    const updatedAt = new Date().toISOString();
+    spots = lotSpots.map(layout => ({ spot_id: layout.spot_id, available: true, confidence: 1, camera_id: 'demo-camera', updated_at: updatedAt }));
+  }
+
+  function loadDemoSnapshot() {
+    if (mode !== 'demo' || demoSnapshotLoaded) return;
+    stopTransport();
+    const updatedAt = new Date().toISOString();
+    const snapshot = lotSpots.map(layout => ({ spot_id: layout.spot_id, available: !DEMO_OCCUPIED_IDS.has(layout.spot_id), confidence: 1, camera_id: 'demo-camera', updated_at: updatedAt }));
+    recordUpdates(snapshot);
+    selectedId = DEMO_TARGET_SPOT;
+    demoSnapshotLoaded = true;
+  }
+
+  function toggleDemoCar() {
+    const current = spots.find(spot => spot.spot_id === DEMO_TARGET_SPOT);
+    if (!current || !demoSnapshotLoaded) return;
+    const updated = { ...current, available: !current.available, updated_at: new Date().toISOString() };
+    recordUpdates([updated]);
+    selectedId = DEMO_TARGET_SPOT;
+  }
+
+  function toggleCamera() {
+    cameraExpanded = !cameraExpanded;
+    if (cameraExpanded) loadDemoSnapshot();
+  }
+
   function openModal(type) { modal = type; error = ''; draft = { ...config }; dialog.showModal(); }
   function saveSettings(event) {
     event.preventDefault();
@@ -130,7 +163,7 @@
       if (saved && typeof saved === 'object') config = { ...config, ...Object.fromEntries(Object.entries(saved).filter(([key, value]) => key in config && typeof value === 'string')) };
     } catch { /* Ignore damaged local preferences. */ }
     config.name = LOT_NAME;
-    connectBackend();
+    startVacantDemo();
     const clock = setInterval(() => now = Date.now(), 1000);
     return () => { stopTransport(); clearInterval(clock); };
   });
@@ -157,7 +190,7 @@
   <div class="location-bar">
     <button class="location-picker" onclick={() => openModal('settings')}><span class="location-icon"><Icon name="pin" size={21}/></span><span><small>YOUR PARKING LOCATION</small><strong>{config.name}</strong></span><Icon name="chevron" size={17}/></button>
     <div class="location-meta"><span class="status-dot" class:offline={!online}></span><span>{connection === 'connecting' ? 'Connecting…' : !online ? 'Connection unavailable' : unmonitored.length === enriched.length ? 'Lot mapped · camera setup pending' : spots.length && unknown.length === spots.length ? 'Waiting for fresh observations' : connection === 'polling' ? 'Updating every 5 seconds' : 'Availability connected'}</span></div>
-    <button class="subtle-button" aria-expanded={cameraExpanded} onclick={() => cameraExpanded = !cameraExpanded}><Icon name="camera" size={17}/> {cameraExpanded ? 'Hide camera' : 'Show camera'} <Icon name="chevron" size={14}/></button>
+    <button class="subtle-button" aria-expanded={cameraExpanded} onclick={toggleCamera}><Icon name="camera" size={17}/> {cameraExpanded ? 'Hide camera' : 'Show camera'} <Icon name="chevron" size={14}/></button>
   </div>
 
   {#if cameraExpanded}
@@ -168,12 +201,13 @@
       {:else}
         <div class="camera-placeholder-inline"><Icon name="camera" size={34}/><div><strong>Camera feed not connected yet</strong><p>Paste a browser-compatible WebRTC or HLS player URL in Lot settings. RTSP URLs cannot play directly in a browser.</p></div><button class="secondary" onclick={() => openModal('settings')}>Add camera URL <Icon name="arrow" size={15}/></button></div>
       {/if}
-      <div class="camera-section-foot"><span><i class="status-dot" class:offline={!online}></i>{online ? 'Occupancy updates connected' : 'Waiting for occupancy service'}</span><span>Map selections and camera detections use the same space IDs.</span></div>
+      {#if mode === 'demo' && demoSnapshotLoaded}<div class="camera-demo-control"><div><strong>Demo car · Space {DEMO_TARGET_SPOT}</strong><p>Move your car PNG in or out, then click to update the matching map space.</p></div><button class="secondary" onclick={toggleDemoCar}>{spots.find(spot => spot.spot_id === DEMO_TARGET_SPOT)?.available ? 'Simulate car entering' : 'Simulate car leaving'} <Icon name="arrow" size={15}/></button></div>{/if}
+      <div class="camera-section-foot"><span><i class="status-dot" class:offline={!online}></i>{mode === 'demo' ? (demoSnapshotLoaded ? 'Fixed demo snapshot loaded' : 'All spaces start vacant') : online ? 'Occupancy updates connected' : 'Waiting for occupancy service'}</span><span>Snapshot occupancy is staged demo data, not live detection.</span></div>
     </section>
   {/if}
 
   {#if simulated}
-    <div class="demo-banner"><span><span class="demo-tag">DEMO</span> {mode === 'demo' ? 'Interactive preview. These spaces are simulated.' : 'Connected to the camera simulator. These are not real parking observations.'}</span><button onclick={() => mode === 'demo' ? connectBackend() : openModal('about')}>{mode === 'demo' ? 'Connect live backend' : 'About this demo'} <Icon name="arrow" size={14}/></button></div>
+    <div class="demo-banner"><span><span class="demo-tag">DEMO</span> {mode === 'demo' ? (demoSnapshotLoaded ? 'Image-based occupancy snapshot. Demo only; not live detection.' : 'Vacant demo baseline. Show camera to load the occupied-space snapshot.') : 'Connected to the camera simulator. These are not real parking observations.'}</span><button onclick={() => mode === 'demo' ? connectBackend() : openModal('about')}>{mode === 'demo' ? 'Connect live backend' : 'About this demo'} <Icon name="arrow" size={14}/></button></div>
   {:else if !online && connection !== 'connecting'}
     <div class="demo-banner disconnected"><span><Icon name="info" size={17}/> We can’t reach the parking service. Previous observations are shown as unknown.</span><button onclick={startDemo}>Try interactive demo <Icon name="arrow" size={14}/></button></div>
   {/if}
