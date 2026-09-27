@@ -2,7 +2,7 @@
 // These are NOT latitude/longitude. IDs and obscured boundaries require onsite review.
 export const LOT_NAME = 'FIU Parking Lot 9';
 export const restrictionLabels = {
-  unverified: 'Permit type unverified',
+  unverified: 'FIU student parking permit',
   staff: 'Faculty / staff',
   accessible: 'Accessible parking',
   metered: 'Metered · $1.50/hr · $8/day',
