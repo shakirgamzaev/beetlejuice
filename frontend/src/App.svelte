@@ -19,6 +19,7 @@
   let search = '';
   let dialog;
   let modal = '';
+  let cameraExpanded = false;
   let error = '';
   let notice = '';
   let config = { name: LOT_NAME, latitude: '', longitude: '', cameraUrl: '' };
@@ -156,8 +157,20 @@
   <div class="location-bar">
     <button class="location-picker" onclick={() => openModal('settings')}><span class="location-icon"><Icon name="pin" size={21}/></span><span><small>YOUR PARKING LOCATION</small><strong>{config.name}</strong></span><Icon name="chevron" size={17}/></button>
     <div class="location-meta"><span class="status-dot" class:offline={!online}></span><span>{connection === 'connecting' ? 'Connecting…' : !online ? 'Connection unavailable' : unmonitored.length === enriched.length ? 'Lot mapped · camera setup pending' : spots.length && unknown.length === spots.length ? 'Waiting for fresh observations' : connection === 'polling' ? 'Updating every 5 seconds' : 'Availability connected'}</span></div>
-    <button class="subtle-button" onclick={() => openModal('camera')}><Icon name="camera" size={17}/> Camera view</button>
+    <button class="subtle-button" aria-expanded={cameraExpanded} onclick={() => cameraExpanded = !cameraExpanded}><Icon name="camera" size={17}/> {cameraExpanded ? 'Hide camera' : 'Show camera'} <Icon name="chevron" size={14}/></button>
   </div>
+
+  {#if cameraExpanded}
+    <section class="camera-section" aria-label="Live parking camera">
+      <div class="camera-section-heading"><div><span class="section-overline">LIVE CAMERA</span><h2>Watch the lot change.</h2><p>Keep this view open while the mapped spaces update.</p></div><button class="secondary" onclick={() => openModal('settings')}><Icon name="settings" size={15}/> Configure feed</button></div>
+      {#if config.cameraUrl && /^https?:\/\//.test(config.cameraUrl)}
+        <iframe src={config.cameraUrl} title="Live FIU Lot 9 parking camera" class="camera-player-inline" allow="autoplay; fullscreen" sandbox="allow-scripts allow-same-origin"></iframe>
+      {:else}
+        <div class="camera-placeholder-inline"><Icon name="camera" size={34}/><div><strong>Camera feed not connected yet</strong><p>Paste a browser-compatible WebRTC or HLS player URL in Lot settings. RTSP URLs cannot play directly in a browser.</p></div><button class="secondary" onclick={() => openModal('settings')}>Add camera URL <Icon name="arrow" size={15}/></button></div>
+      {/if}
+      <div class="camera-section-foot"><span><i class="status-dot" class:offline={!online}></i>{online ? 'Occupancy updates connected' : 'Waiting for occupancy service'}</span><span>Map selections and camera detections use the same space IDs.</span></div>
+    </section>
+  {/if}
 
   {#if simulated}
     <div class="demo-banner"><span><span class="demo-tag">DEMO</span> {mode === 'demo' ? 'Interactive preview. These spaces are simulated.' : 'Connected to the camera simulator. These are not real parking observations.'}</span><button onclick={() => mode === 'demo' ? connectBackend() : openModal('about')}>{mode === 'demo' ? 'Connect live backend' : 'About this demo'} <Icon name="arrow" size={14}/></button></div>
