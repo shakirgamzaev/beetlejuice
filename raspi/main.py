@@ -50,6 +50,12 @@ def parse_args() -> argparse.Namespace:
     parsed_url = urlparse(args.url)
     if parsed_url.scheme != "rtsp" or not parsed_url.netloc:
         parser.error("--url must be a complete rtsp:// URL")
+    if not parsed_url.path.strip("/"):
+        example_port = f":{parsed_url.port}" if parsed_url.port else ":8554"
+        example_url = f"rtsp://{parsed_url.hostname}{example_port}/parking"
+        parser.error(
+            f"--url must include a stream path, for example: {example_url}"
+        )
     for name in ("width", "height", "fps", "bitrate"):
         if getattr(args, name) <= 0:
             parser.error(f"--{name} must be greater than zero")
@@ -83,6 +89,8 @@ def stream(args: argparse.Namespace) -> None:
         "--framerate",
         str(args.fps),
         "--codec",
+        "h264",
+        "--libav-format",
         "h264",
         "--profile",
         "baseline",

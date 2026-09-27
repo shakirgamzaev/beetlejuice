@@ -7,7 +7,9 @@ authors = [
     { name = "Shakir Gamzaev", email = "shkir100@gmail.com" }
 ]
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "opencv-python>=5.0.0.93",
+]
 
 [project.scripts]
 raspi = "raspi:main"
