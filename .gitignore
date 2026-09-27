@@ -1,4 +1,7 @@
-/WelcomeScreen
+WelcomeScreen/
 .env
 pictures/
 .idea/
+# Python cache
+__pycache__/
+*.pyc
