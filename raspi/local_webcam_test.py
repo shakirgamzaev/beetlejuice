@@ -22,6 +22,12 @@ from urllib.request import Request, urlopen
 import cv2
 import numpy as np
 
+from auto_detect_spots import (
+    detect_spots_from_frame,
+    draw_candidate_overlay,
+    generate_column_bay,
+)
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -69,7 +75,7 @@ class PredefinedBoundaryBox:
         cv2.fillPoly(self.mask, [local_pts], 255)
         self.area = max(cv2.countNonZero(self.mask), 1)
 
-    def evaluate(self, processed_frame: np.ndarray, default_threshold: float = 0.18) -> bool:
+    def evaluate(self, processed_frame: np.ndarray, default_threshold: float = 0.30) -> bool:
         frame_h, frame_w = processed_frame.shape[:2]
         x1, y1 = max(0, self.x), max(0, self.y)
         x2, y2 = min(frame_w, self.x + self.w), min(frame_h, self.y + self.h)
@@ -110,7 +116,7 @@ class PredefinedBoundaryBox:
 class BoundaryEditor:
     """Manages parking spots and handles interactive mouse boundary drawing with auto-retention."""
 
-    def __init__(self, spots_file: str | Path, default_threshold: float = 0.18) -> None:
+    def __init__(self, spots_file: str | Path, default_threshold: float = 0.30) -> None:
         self.spots_file = Path(spots_file).resolve()
         self.default_threshold = default_threshold
         self.boxes: list[PredefinedBoundaryBox] = []
@@ -119,6 +125,15 @@ class BoundaryEditor:
         self.calibrating: bool = True
         self.status_message: str = ""
         self.status_timestamp: float = 0.0
+
+        # Auto-detect state
+        self.auto_candidates: list[dict[str, Any]] | None = None
+        self.auto_reviewing: bool = False
+
+        # Two-click Bay Generator state
+        self.bay_mode: bool = False
+        self.bay_p1: tuple[int, int] | None = None
+
         self.load_spots()
 
     def set_status(self, message: str) -> None:
@@ -129,7 +144,7 @@ class BoundaryEditor:
     def load_spots(self) -> None:
         self.boxes.clear()
         if not self.spots_file.is_file() or self.spots_file.stat().st_size == 0:
-            self.set_status(f"Ready. New boundaries will be retained in {self.spots_file.name}")
+            self.set_status(f"Ready. Press 'a' to auto-detect spots from camera.")
             return
 
         try:
@@ -145,7 +160,7 @@ class BoundaryEditor:
                         threshold=item.get("threshold"),
                     )
                 )
-            self.set_status(f"Loaded and retained {len(self.boxes)} boundaries from {self.spots_file.name}")
+            self.set_status(f"Loaded {len(self.boxes)} boundaries from {self.spots_file.name}")
         except Exception as error:
             logger.error("Failed to load %s: %s", self.spots_file, error)
 
@@ -159,15 +174,102 @@ class BoundaryEditor:
         except Exception as error:
             logger.error("Failed to save %s: %s", self.spots_file, error)
 
+    def auto_detect_from_frame(self, frame: np.ndarray) -> int:
+        """Analyze the camera frame and present auto-detected candidates for review."""
+        candidates = detect_spots_from_frame(frame)
+        if candidates:
+            self.auto_candidates = candidates
+            self.auto_reviewing = True
+            self.set_status(
+                f"Auto-detected {len(candidates)} spots! ENTER=Accept & Save | ESC=Discard"
+            )
+            return len(candidates)
+        else:
+            self.set_status("No spots detected. Try adjusting angle or lighting.")
+            return 0
+
+    def accept_auto_candidates(self) -> None:
+        """Accept auto-detected candidates and save immediately."""
+        if not self.auto_candidates:
+            return
+        self.boxes.clear()
+        for item in self.auto_candidates:
+            self.boxes.append(
+                PredefinedBoundaryBox(
+                    spot_id=item["spot_id"],
+                    points=item["points"],
+                    bbox=item.get("bbox"),
+                )
+            )
+        self.save_spots()
+        self.set_status(f"Accepted & saved {len(self.boxes)} auto-detected boundaries!")
+        self.auto_candidates = None
+        self.auto_reviewing = False
+
+    def cancel_auto_detect(self) -> None:
+        """Cancel auto-detect review without altering current boundaries."""
+        self.auto_candidates = None
+        self.auto_reviewing = False
+        self.set_status("Auto-detect cancelled. Existing boundaries kept.")
+
+    def toggle_bay_mode(self) -> None:
+        """Toggle two-click bay generator mode."""
+        self.bay_mode = not self.bay_mode
+        self.bay_p1 = None
+        if self.bay_mode:
+            self.calibrating = True
+            self.set_status("Bay Generator: Click Top-Left corner of column")
+        else:
+            self.set_status("Bay Generator cancelled.")
+
+    def clear_all_spots(self) -> None:
+        """Clear all spots for a clean re-initialization."""
+        self.boxes.clear()
+        self.current_points.clear()
+        self.auto_candidates = None
+        self.auto_reviewing = False
+        self.save_spots()
+        self.set_status("Cleared all boundaries.")
+
     def on_mouse(self, event: int, x: int, y: int, flags: int, param: Any) -> None:
         self.mouse_pos = (x, y)
         if not self.calibrating:
             return
 
-        # Left-click to add a corner point
+        # Handle Two-Click Bay Generator Mode
+        if self.bay_mode:
+            if event == cv2.EVENT_LBUTTONDOWN:
+                if self.bay_p1 is None:
+                    self.bay_p1 = (x, y)
+                    self.set_status("Bay Generator: Click Bottom-Right corner of column")
+                else:
+                    new_spots = generate_column_bay(
+                        self.bay_p1,
+                        (x, y),
+                        spot_height=16,
+                        start_index=len(self.boxes) + 1,
+                    )
+                    for item in new_spots:
+                        self.boxes.append(
+                            PredefinedBoundaryBox(
+                                spot_id=item["spot_id"],
+                                points=item["points"],
+                                bbox=item.get("bbox"),
+                            )
+                        )
+                    self.save_spots()
+                    self.set_status(f"Generated {len(new_spots)} spots in bay!")
+                    self.bay_mode = False
+                    self.bay_p1 = None
+            elif event == cv2.EVENT_RBUTTONDOWN:
+                self.bay_mode = False
+                self.bay_p1 = None
+                self.set_status("Bay Generator cancelled.")
+            return
+
+        # Normal mode: Left-click to add a corner point
         if event == cv2.EVENT_LBUTTONDOWN:
             self.current_points.append([x, y])
-            # When 4 corners are clicked, complete the boundary box
             if len(self.current_points) == 4:
                 new_id = f"A-{len(self.boxes) + 1}"
                 self.boxes.append(
@@ -177,7 +279,6 @@ class BoundaryEditor:
                     )
                 )
                 self.current_points = []
-                # Immediately auto-save so boundary is retained even on unexpected exit
                 self.save_spots()
 
         # Right-click to remove nearest boundary
@@ -189,7 +290,6 @@ class BoundaryEditor:
                 ]
                 nearest_idx = int(np.argmin(distances))
                 removed = self.boxes.pop(nearest_idx)
-                # Immediately auto-save removal
                 self.save_spots()
 
     def undo(self) -> None:
@@ -224,6 +324,12 @@ def draw_boundaries(
     show_details: bool = True,
 ) -> None:
     """Draw boundaries with translucent color overlay, crisp edges, and labels."""
+    # When reviewing auto-detected candidates, render the candidate overlay
+    if editor.auto_reviewing and editor.auto_candidates:
+        candidate_frame = draw_candidate_overlay(frame, editor.auto_candidates)
+        np.copyto(frame, candidate_frame)
+        return
+
     overlay = frame.copy()
 
     for box in editor.boxes:
@@ -250,7 +356,14 @@ def draw_boundaries(
     # Blend translucent fill (35% opacity)
     cv2.addWeighted(overlay, 0.35, frame, 0.65, 0, frame)
 
-    # In-progress drawing preview (lines following cursor)
+    # Bay Generator in-progress preview (rubberband rectangle)
+    if editor.bay_mode and editor.bay_p1 is not None:
+        p1 = editor.bay_p1
+        p2 = editor.mouse_pos
+        cv2.rectangle(frame, p1, p2, (0, 215, 255), 2)
+        cv2.circle(frame, p1, 5, (0, 255, 255), -1)
+
+    # In-progress single spot manual drawing preview
     if editor.calibrating and editor.current_points:
         pts = np.array(editor.current_points, dtype=np.int32)
         for pt in editor.current_points:
@@ -270,7 +383,15 @@ def draw_hud(
     h, w = frame.shape[:2]
     overlay = frame.copy()
     cv2.rectangle(overlay, (0, 0), (w, 55), (20, 20, 20), -1)
-    cv2.addWeighted(overlay, 0.8, frame, 0.2, 0, frame)
+    cv2.addWeighted(overlay, 0.85, frame, 0.15, 0, frame)
+
+    if editor.auto_reviewing:
+        count = len(editor.auto_candidates) if editor.auto_candidates else 0
+        stats_text = f"AUTO-DETECT RESULT: {count} SPOTS PROPOSED"
+        cv2.putText(frame, stats_text, (15, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 215, 255), 2, cv2.LINE_AA)
+        mode_text = "[PRESS ENTER / 'y' TO CONFIRM & SAVE | ESC / 'n' TO DISCARD]"
+        cv2.putText(frame, mode_text, (15, 46), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 255), 1, cv2.LINE_AA)
+        return
 
     total = len(editor.boxes)
     stats_text = (
@@ -285,14 +406,20 @@ def draw_hud(
     if editor.status_message and (now - editor.status_timestamp < 3.0):
         mode_text = f"[{editor.status_message}]"
         color = (0, 255, 120)  # Bright green notification
+    elif editor.bay_mode:
+        if editor.bay_p1 is None:
+            mode_text = "[BAY TOOL: Click TOP-LEFT corner of parking column/bay | 'b' cancel]"
+        else:
+            mode_text = "[BAY TOOL: Click BOTTOM-RIGHT corner to auto-generate bay | 'b' cancel]"
+        color = (0, 215, 255)
     elif editor.calibrating:
-        mode_text = "[DRAWING: Click 4 corners | Right-click delete | 'u' undo | 'c' toggle | 'p' preview | 'q' quit]"
+        mode_text = "[SETUP: 'a' Auto-Detect | 'b' Bay Tool | 4 clicks=Spot | Right-click=Delete | 'd' Clear | 'c' Run]"
         color = (0, 220, 255)
     else:
-        mode_text = "[DETECTION MODE: Press 'c' to edit boundaries | 'r' reload | 'p' binary view | 'q' quit]"
+        mode_text = "[LIVE DETECTION: 'c' Edit/Setup | 'a' Auto-Detect | 'r' Reload | 'p' Binary | 'q' Quit]"
         color = (200, 200, 200)
 
-    cv2.putText(frame, mode_text, (15, 46), cv2.FONT_HERSHEY_SIMPLEX, 0.42, color, 1, cv2.LINE_AA)
+    cv2.putText(frame, mode_text, (15, 46), cv2.FONT_HERSHEY_SIMPLEX, 0.40, color, 1, cv2.LINE_AA)
 
 
 def send_to_backend(backend_url: str | None, camera_id: str, detections: list[dict[str, Any]]) -> None:
@@ -334,8 +461,8 @@ def main() -> None:
     parser.add_argument(
         "--threshold",
         type=float,
-        default=0.18,
-        help="Car presence feature density threshold (default: 0.18).",
+        default=0.30,
+        help="Car presence feature density / confidence threshold (default: 0.30 for 30%% minimum).",
     )
     parser.add_argument(
         "--backend-url",
@@ -346,6 +473,11 @@ def main() -> None:
         "--camera-id",
         default="local-webcam",
         help="Camera ID reported to the backend.",
+    )
+    parser.add_argument(
+        "--auto-detect",
+        action="store_true",
+        help="Automatically detect parking spot boundaries on first camera frame.",
     )
     args = parser.parse_args()
 
@@ -361,14 +493,15 @@ def main() -> None:
     cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
     cv2.setMouseCallback(window_name, editor.on_mouse)
 
-    logger.info("Webcam started! Click 4 corners on any area to define a spot boundary.")
-    logger.info("Controls: 's'=Save to %s | 'c'=Toggle Draw Mode | 'u'=Undo | 'p'=Threshold Preview | 'q'=Quit", args.spots)
+    logger.info("Webcam started! Press 'a' to auto-detect parking spots across the lot.")
+    logger.info("Controls: 'a'=Auto-Detect | 'b'=Bay Tool | 'c'=Toggle Draw | 's'=Save | 'd'=Clear | 'q'=Quit")
 
     show_binary = False
     fps = 0.0
     frame_count = 0
     start_time = time.time()
     last_backend_report = 0.0
+    auto_detected_on_start = False
 
     try:
         while True:
@@ -381,6 +514,12 @@ def main() -> None:
                 logger.warning("Empty frame from webcam. Retrying...")
                 time.sleep(0.05)
                 continue
+
+            # Auto-detect on first frame if requested via CLI flag
+            if args.auto_detect and not auto_detected_on_start:
+                editor.auto_detect_from_frame(frame)
+                editor.accept_auto_candidates()
+                auto_detected_on_start = True
 
             frame_count += 1
             now = time.time()
@@ -430,11 +569,25 @@ def main() -> None:
 
             key = cv2.waitKey(1) & 0xFF
 
+            # Review mode keys
+            if editor.auto_reviewing:
+                if key in (13, ord("y"), ord("Y")):  # ENTER or 'y' to confirm
+                    editor.accept_auto_candidates()
+                elif key in (27, 8, ord("n"), ord("N")):  # ESC, Backspace, or 'n' to cancel
+                    editor.cancel_auto_detect()
+                continue
+
             if key in (ord("q"), 27):  # 'q' or Esc
                 break
+            elif key == ord("a"):
+                editor.auto_detect_from_frame(frame)
+            elif key == ord("b"):
+                editor.toggle_bay_mode()
+            elif key == ord("d"):
+                editor.clear_all_spots()
             elif key == ord("c"):
                 editor.calibrating = not editor.calibrating
-                editor.set_status("Drawing mode: ACTIVE" if editor.calibrating else "Drawing mode: OFF")
+                editor.set_status("Drawing mode: ACTIVE" if editor.calibrating else "Detection mode: ACTIVE")
             elif key == ord("s"):
                 editor.save_spots()
             elif key == ord("r"):
